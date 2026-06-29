@@ -219,7 +219,11 @@ __marimo__/
 
 # Exports
 fpinn/exports/*
-!fpinn/exports/
+!fpinn/exports/.gitkeep
 
 wavelets/exports/*
-!wavelets/exports/
+!wavelets/exports/.gitkeep
+
+# pycache
+__pycache__/
+*.pyc
