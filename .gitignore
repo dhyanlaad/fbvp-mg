@@ -218,4 +218,8 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Exports
-fpinn/exports
+fpinn/exports/*
+!fpinn/exports/
+
+wavelets/exports/*
+!wavelets/exports/
