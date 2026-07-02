@@ -14,7 +14,7 @@ from math_ops.quad_operators import (trap_weights,
                                      precompute_volt_matrix, eval_volt_precomputed,
                                      precompute_fred_matrices, eval_fred_precomputed)
 
-from problems.tadpole import (ALPHA, EDGE_DEFS, NUM_EDGES, BC_DEFS,
+from problems.local_dom import (ALPHA, EDGE_DEFS, NUM_EDGES, BC_DEFS,
                               k_volt, k_fred, reaction, source_fn, exact_sol)
 
 def fredholm_scale(epoch):
@@ -217,35 +217,35 @@ def train():
 
     lbfgs_optimizer = optim.LBFGS(
         model.parameters(),
-        max_iter=1,
+        max_iter=lbfgs_max_iter,
         tolerance_grad=1e-9,
         tolerance_change=1e-12,
         history_size=50,
         line_search_fn="strong_wolfe",
     )
 
-    for lbfgs_iter in range(1, lbfgs_max_iter + 1):
-        def closure():
-            lbfgs_optimizer.zero_grad()
-            loss, l_ode, l_kirch = compute_loss(
-                **loss_kwargs, epoch=lbfgs_epoch)
-            loss.backward()
-            return loss
+    lbfgs_iter = 0
 
-        lbfgs_optimizer.step(closure)
-        
+    def closure():
+        nonlocal lbfgs_iter
+        lbfgs_optimizer.zero_grad()
         loss, l_ode, l_kirch = compute_loss(
             **loss_kwargs, epoch=lbfgs_epoch)
-            
+        loss.backward()
+
         history['total'].append(loss.item())
         history['edges'].append(l_ode.item())
         history['nodes'].append(l_kirch.item())
 
+        lbfgs_iter += 1
         if lbfgs_iter % 100 == 0 or lbfgs_iter == 1:
-            print(f"L-BFGS iter {lbfgs_iter:4d}/{lbfgs_max_iter} "
+            print(f"L-BFGS eval {lbfgs_iter:4d} "
                   f"| Loss: {loss.item():.4e} "
                   f"| ODE: {l_ode.item():.4e} "
                   f"| Kirch: {l_kirch.item():.4e}")
+        return loss
+
+    lbfgs_optimizer.step(closure)
 
     print("\nTraining complete")
     model.eval()
