@@ -6,7 +6,7 @@ from scipy.integrate import quad
 
 # Dynamically import the universal problem definition
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from problems.tadpole import ALPHA, EDGE_DEFS, BC_DEFS, k_volt as _k_volt, k_fred as _k_fred, reaction as _reaction, exact_sol as _exact_sol, source_fn as _source_fn
+from problems.a1_star_smooth import ALPHA, EDGE_DEFS, BC_DEFS, k_volt as _k_volt, k_fred as _k_fred, reaction as _reaction, exact_sol as _exact_sol, source_fn as _source_fn
 from solver import WaveletSolverMG
 import torch
 import scipy.special

@@ -14,8 +14,8 @@ from math_ops.quad_operators import (trap_weights,
                                      precompute_volt_matrix, eval_volt_precomputed,
                                      precompute_fred_matrices, eval_fred_precomputed)
 
-from problems.local_dom import (ALPHA, EDGE_DEFS, NUM_EDGES, BC_DEFS,
-                              k_volt, k_fred, reaction, source_fn, exact_sol)
+from problems.a1_star_smooth import (ALPHA, EDGE_DEFS, NUM_EDGES, BC_DEFS,
+                                     k_volt, k_fred, reaction, source_fn, exact_sol)
 
 def fredholm_scale(epoch):
     """
@@ -196,6 +196,7 @@ def train():
         history['nodes'].append(l_kirch.item())
 
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
 
         if epoch % 1000 == 0 or epoch == 1:
