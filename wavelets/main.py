@@ -4,10 +4,12 @@ import math
 import numpy as np
 from scipy.integrate import quad
 
-# Dynamically import the universal problem definition
+K_VAL = 6
+M_VAL = 4
+
+# Setup paths so imports resolve
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from problems.a1_star_smooth import ALPHA, EDGE_DEFS, BC_DEFS, k_volt as _k_volt, k_fred as _k_fred, reaction as _reaction, exact_sol as _exact_sol, source_fn as _source_fn
-from solver import WaveletSolverMG
+from wavelets.solver import WaveletSolverMG
 import torch
 import scipy.special
 
@@ -72,58 +74,60 @@ def autograd_caputo_derivative(func, x, alpha, quad_pts, quad_wts):
     
     return frac_d.unsqueeze(1)
 
-QUAD_PTS, QUAD_WTS = get_jacobi_quadrature(30, ALPHA)
-
-def exact_sol(x, edge_i):
-    res = _exact_sol(torch.tensor(x), edge_i)
-    return res.item() if isinstance(res, torch.Tensor) else res
-
-def reaction(x, edge_i):
-    res = _reaction(torch.tensor(x), edge_i)
-    return res.item() if isinstance(res, torch.Tensor) else res
-
-def k_volt(x, xi, edge_i):
-    res = _k_volt(edge_i, torch.tensor(x), torch.tensor(xi))
-    return res.item() if isinstance(res, torch.Tensor) else res
-
-def k_fred(x, xi, edge_i, edge_j):
-    res = _k_fred(edge_i, edge_j, torch.tensor(x), torch.tensor(xi))
-    return res.item() if isinstance(res, torch.Tensor) else res
-
-def compute_f(x, edge_i, gamma):
-    user_f = _source_fn(torch.tensor(x), edge_i)
-    if user_f is not None:
-        return user_f.item() if isinstance(user_f, torch.Tensor) else user_f
-
-    x_t = torch.tensor([[x]], dtype=torch.float32)
-    def func(xi_t):
-        return _exact_sol(xi_t, edge_i)
-    frac_d_t = autograd_caputo_derivative(func, x_t, gamma, QUAD_PTS, QUAD_WTS)
-    frac_d = frac_d_t.item()
+def run_wavelets(problem_mod):
+    ALPHA = problem_mod.ALPHA
+    EDGE_DEFS = problem_mod.EDGE_DEFS
+    BC_DEFS = problem_mod.BC_DEFS
     
-    react = reaction(x, edge_i) * exact_sol(x, edge_i)
-    
-    volterra, _ = quad(lambda xi: k_volt(x, xi, edge_i) * exact_sol(xi, edge_i), 0, x, limit=100)
-    
-    fredholm = 0.0
-    for j in range(len(EDGE_DEFS)):
-        L_j = EDGE_DEFS[j][2]
-        int_val, _ = quad(lambda xi: k_fred(x, xi, edge_i, j) * exact_sol(xi, j), 0, L_j, limit=100)
-        fredholm += int_val
+    QUAD_PTS, QUAD_WTS = get_jacobi_quadrature(30, ALPHA)
+
+    def exact_sol(x, edge_i):
+        res = problem_mod.exact_sol(torch.tensor(x), edge_i)
+        return res.item() if isinstance(res, torch.Tensor) else res
+
+    def reaction(x, edge_i):
+        res = problem_mod.reaction(torch.tensor(x), edge_i)
+        return res.item() if isinstance(res, torch.Tensor) else res
+
+    def k_volt(x, xi, edge_i):
+        res = problem_mod.k_volt(edge_i, torch.tensor(x), torch.tensor(xi))
+        return res.item() if isinstance(res, torch.Tensor) else res
+
+    def k_fred(x, xi, edge_i, edge_j):
+        res = problem_mod.k_fred(edge_i, edge_j, torch.tensor(x), torch.tensor(xi))
+        return res.item() if isinstance(res, torch.Tensor) else res
+
+    def compute_f(x, edge_i, gamma):
+        user_f = problem_mod.source_fn(torch.tensor(x), edge_i)
+        if user_f is not None:
+            return user_f.item() if isinstance(user_f, torch.Tensor) else user_f
+
+        x_t = torch.tensor([[x]], dtype=torch.float32)
+        def func(xi_t):
+            return problem_mod.exact_sol(xi_t, edge_i)
+        frac_d_t = autograd_caputo_derivative(func, x_t, gamma, QUAD_PTS, QUAD_WTS)
+        frac_d = frac_d_t.item()
         
-    return frac_d + react - volterra - fredholm
+        react = reaction(x, edge_i) * exact_sol(x, edge_i)
+        
+        volterra, _ = quad(lambda xi: k_volt(x, xi, edge_i) * exact_sol(xi, edge_i), 0, x, limit=100)
+        
+        fredholm = 0.0
+        for j in range(len(EDGE_DEFS)):
+            L_j = EDGE_DEFS[j][2]
+            int_val, _ = quad(lambda xi: k_fred(x, xi, edge_i, j) * exact_sol(xi, j), 0, L_j, limit=100)
+            fredholm += int_val
+            
+        return frac_d + react - volterra - fredholm
 
-if __name__ == "__main__":
     solver = WaveletSolverMG(EDGE_DEFS, BC_DEFS, ALPHA, reaction, k_volt, k_fred)
     
-    k_val = 3
-    M_val = 4
-    print(f"\nCommencing solver with gamma = {ALPHA}, k = {k_val}, M = {M_val}...")
+    print(f"[ Wavelet Solver | gamma: {ALPHA} | k: {K_VAL} | M: {M_VAL} ]")
     
-    approx_func, collocation_pts = solver.solve(k_val, M_val, compute_f)
+    approx_func, collocation_pts = solver.solve(K_VAL, M_VAL, compute_f)
     
-    print(f"\n{'Edge':<5} | {'x':<10} | {'Exact':<15} | {'Approx':<15} | {'Error':<15}")
-    print("-" * 68)
+    print(f"\nEdge | x          | Exact           | Approx          | Error")
+    print("------------------------------------------------------------------")
     
     max_error = 0
     has_exact = True
@@ -138,16 +142,15 @@ if __name__ == "__main__":
                 print(f"{edge_i:<5} | {x_val:<10.4f} | {exact_val:<15.6e} | {approx_val:<15.6e} | {error:<15.6e}")
             else:
                 has_exact = False
-                print(f"{edge_i:<5} | {x_val:<10.4f} | {'N/A':<15} | {approx_val:<15.6e} | {'N/A':<15}")
+                print(f"{edge_i:<4} | {x_val:<10.4f} | N/A             | {approx_val:<15.6e} | N/A")
             
-    print("-" * 68)
+    print("------------------------------------------------------------------")
     if has_exact:
         print(f"Max absolute error across entire graph: {max_error:.6e}")
     else:
         print("Max absolute error across entire graph: N/A")
     
     import json
-    import os
     
     script_dir = os.path.dirname(os.path.abspath(__file__))
     exports_dir = os.path.join(script_dir, 'exports')
@@ -172,3 +175,22 @@ if __name__ == "__main__":
         
     torch.save(results, os.path.join(exports_dir, 'predictions.pt'))
     print(f"\nData successfully exported to {exports_dir} for visualization!")
+
+if __name__ == "__main__":
+    import argparse
+    import importlib
+    import glob
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-p', '--problem', type=str, required=True, help='Problem ID (e.g. b4a)')
+    args = parser.parse_args()
+    
+    problem_id = os.path.basename(args.problem).replace('.py', '')
+    files = glob.glob(f"problems/{problem_id}*.py")
+    if not files:
+        raise ValueError(f"No problem found matching {args.problem}")
+    
+    mod_name = files[0].split('/')[-1].replace('.py', '')
+    problem_mod = importlib.import_module(f"problems.{mod_name}")
+    
+    run_wavelets(problem_mod)

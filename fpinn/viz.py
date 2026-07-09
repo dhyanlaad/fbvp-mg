@@ -29,13 +29,12 @@ def main():
 
     num_edges = len(results)
 
-    import math as _math
-    nrows = _math.ceil(num_edges / 2)
-    ncols = 2
+    nrows = 1
+    ncols = num_edges
     fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 5 * nrows), squeeze=False)
 
     for i in range(num_edges):
-        ax = axes[i // ncols][i % ncols]
+        ax = axes[0][i]
         x     = results[i]['x'].cpu().detach().numpy().flatten()
         pred  = results[i]['u_pred'].cpu().detach().numpy().flatten()
 
@@ -51,10 +50,6 @@ def main():
         ax.set_ylabel('y(x)')
         ax.legend()
         ax.grid(True, alpha=0.3)
-
-    # Hide unused subplot axes
-    for j in range(num_edges, nrows * ncols):
-        axes[j // ncols][j % ncols].set_visible(False)
 
     plt.tight_layout()
     plt.savefig('exports/predictions_plot.png', dpi=300, bbox_inches='tight')

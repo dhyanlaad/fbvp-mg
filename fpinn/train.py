@@ -1,6 +1,8 @@
 import sys
 import os
+import warnings
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+warnings.filterwarnings("ignore", message=".*cuBLAS.*")
 import math
 import torch
 import torch.optim as optim
@@ -14,22 +16,7 @@ from math_ops.quad_operators import (trap_weights,
                                      precompute_volt_matrix, eval_volt_precomputed,
                                      precompute_fred_matrices, eval_fred_precomputed)
 
-from problems.a1_star_smooth import (ALPHA, EDGE_DEFS, NUM_EDGES, BC_DEFS,
-                                     k_volt, k_fred, reaction, source_fn, exact_sol)
-
-def fredholm_scale(epoch):
-    """
-    Gradually scales up the non-local Fredholm coupling over epochs 
-    to prevent it from overwhelming the local PDE physics early in training.
-    """
-    if epoch <= 2000:
-        return 0.0
-    elif epoch <= 5000:
-        return (epoch - 2000) / 3000.0
-    else:
-        return 1.0
-
-def compute_loss(model, x_grids, quad_pts, quad_wts, q_weights, f_vecs, lengths,
+def compute_loss(problem_mod, model, x_grids, quad_pts, quad_wts, q_weights, f_vecs, lengths,
                  vtx_info, int_verts, bnd_verts, G, num_edges, device,
                  lam_ode, lam_kirch, epoch,
                  K_volt_matrices, K_fred_matrices):
@@ -46,21 +33,22 @@ def compute_loss(model, x_grids, quad_pts, quad_wts, q_weights, f_vecs, lengths,
 
     u_preds = [model(x_grids[i], i) for i in range(num_edges)]
 
-    fs = fredholm_scale(epoch)
+    fs = 1.0
     
     # 1. Fractional Integro-Differential Equation (ODE) Loss
     loss_ode = torch.tensor(0.0, device=device)
     for i in range(num_edges):
         func = lambda x, ei=i: model(x, ei)
-        frac_d = autograd_caputo_derivative(func, x_grids[i], ALPHA, quad_pts, quad_wts)
-        react  = reaction(x_grids[i], i) * u_preds[i]
+        frac_d = autograd_caputo_derivative(func, x_grids[i], problem_mod.ALPHA, quad_pts, quad_wts)
+        react  = problem_mod.reaction(x_grids[i], i) * u_preds[i]
 
         volt = eval_volt_precomputed(u_preds[i], K_volt_matrices[i])
         fred = eval_fred_precomputed(u_preds, K_fred_matrices[i], num_edges)
 
         residual = frac_d + react - volt - fs * fred - f_vecs[i]
         
-        scale = torch.mean(f_vecs[i] ** 2) + 1e-8
+        f_mean_sq = torch.mean(f_vecs[i] ** 2)
+        scale = f_mean_sq if f_mean_sq > 1e-4 else 1.0
         loss_ode = loss_ode + torch.mean(residual ** 2) / scale
     loss_ode = loss_ode / num_edges
 
@@ -94,14 +82,17 @@ def compute_loss(model, x_grids, quad_pts, quad_wts, q_weights, f_vecs, lengths,
 
     return loss, loss_ode, loss_kirch
 
-def train():
+def train(problem_mod):
     """
     Main training execution loop for the FPINN metric graph architecture.
     """
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    if device.type == 'cuda':
+        torch.cuda.init()
+        torch.zeros(1, device=device)  # force context creation
 
     # Topology Analysis
-    G         = build_graph(EDGE_DEFS)
+    G         = build_graph(problem_mod.EDGE_DEFS)
     edge_list = get_edge_list(G)
     vtx_info  = get_vertex_info(G)
     int_verts = get_internal_vertices(G)
@@ -112,10 +103,10 @@ def train():
     lr     = 1e-3
 
     lam_ode       = 10.0
-    lam_kirch     = 1.0
+    lam_kirch     = 1000.0
 
-    adam_epochs = 18000
-    lbfgs_max_iter = 2000
+    adam_max_epochs = 20000
+    lbfgs_max_iter = 5000
 
     # Grid Construction
     x_grids   = []
@@ -123,7 +114,7 @@ def train():
     f_vecs    = []
     lengths   = []
     
-    quad_pts, quad_wts = get_jacobi_quadrature(30, ALPHA, device)
+    quad_pts, quad_wts = get_jacobi_quadrature(30, problem_mod.ALPHA, device)
     
     for eid, start, end, length in edge_list:
         xg = grid(N=N_coll, length=length, beta=1.0, device=device)
@@ -135,25 +126,25 @@ def train():
     with torch.no_grad():
         K_volt_matrices = []
         for i in range(num_edges):
-            kern_i = lambda x, z, ei=i: k_volt(ei, x, z)
+            kern_i = lambda x, z, ei=i: problem_mod.k_volt(ei, x, z)
             K_volt_i = precompute_volt_matrix(x_grids[i], kern_i, q_weights[i])
             K_volt_matrices.append(K_volt_i)
 
-        K_fred_matrices = precompute_fred_matrices(x_grids, k_fred, q_weights, num_edges)
+        K_fred_matrices = precompute_fred_matrices(x_grids, problem_mod.k_fred, q_weights, num_edges)
 
     # Forcing Vector Generation
     for i in range(num_edges):
-        user_f = source_fn(x_grids[i], i)
+        user_f = problem_mod.source_fn(x_grids[i], i)
         if user_f is not None:
             f_vecs.append(user_f.detach())
         else:
-            u_ex_all = [exact_sol(x_grids[j], j) for j in range(num_edges)]
+            u_ex_all = [problem_mod.exact_sol(x_grids[j], j) for j in range(num_edges)]
             if any(u is None for u in u_ex_all):
                 raise ValueError(f"source_fn returned None on edge {i}, but exact_sol is also missing. Cannot compute source term.")
             
-            func = lambda x, ei=i: exact_sol(x, ei)
-            frac_d = autograd_caputo_derivative(func, x_grids[i], ALPHA, quad_pts, quad_wts).detach()
-            react  = reaction(x_grids[i], i) * u_ex_all[i]
+            func = lambda x, ei=i: problem_mod.exact_sol(x, ei)
+            frac_d = autograd_caputo_derivative(func, x_grids[i], problem_mod.ALPHA, quad_pts, quad_wts).detach()
+            react  = problem_mod.reaction(x_grids[i], i) * u_ex_all[i]
             
             volt   = eval_volt_precomputed(u_ex_all[i], K_volt_matrices[i])
             fred   = eval_fred_precomputed(u_ex_all, K_fred_matrices[i], num_edges)
@@ -166,11 +157,11 @@ def train():
                            bnd_verts=bnd_verts, 
                            int_verts=int_verts,
                            vtx_info=vtx_info,
-                           bc_defs=BC_DEFS,
+                           bc_defs=problem_mod.BC_DEFS,
                            share_init=True).to(device)
 
     loss_kwargs = dict(
-        model=model, x_grids=x_grids, quad_pts=quad_pts, quad_wts=quad_wts,
+        problem_mod=problem_mod, model=model, x_grids=x_grids, quad_pts=quad_pts, quad_wts=quad_wts,
         q_weights=q_weights, f_vecs=f_vecs, lengths=lengths,
         vtx_info=vtx_info, int_verts=int_verts, bnd_verts=bnd_verts,
         G=G, num_edges=num_edges, device=device,
@@ -180,12 +171,20 @@ def train():
         K_fred_matrices=K_fred_matrices
     )
 
+    # Use standard learning rate for all parameters. 
+    # We rely on L-BFGS to correctly scale the gradients 
+    # via the inverse Hessian to perfectly align the junction values.
     optimizer = optim.Adam(model.parameters(), lr=lr)
     print("\nAdam optimisation")
 
     history = {'total': [], 'edges': [], 'nodes': []}
+    
+    best_loss = float('inf')
+    patience_counter = 0
+    adam_patience = 500
+    adam_min_delta = 1e-8
 
-    for epoch in range(1, adam_epochs + 1):
+    for epoch in range(1, adam_max_epochs + 1):
         optimizer.zero_grad()
 
         loss, l_ode, l_kirch = compute_loss(
@@ -200,27 +199,41 @@ def train():
         optimizer.step()
 
         if epoch % 1000 == 0 or epoch == 1:
-            fs = fredholm_scale(epoch)
-            print(f"Epoch {epoch:5d}/{adam_epochs} | Loss: {loss.item():.4e} "
+            print(f"Epoch {epoch:5d}/{adam_max_epochs} | Loss: {loss.item():.4e} "
                   f"| ODE: {l_ode.item():.4e} "
                   f"| Kirch: {l_kirch.item():.4e} "
-                  f"| fred_s: {fs:.2f}")
-        if epoch > 5000:
-            T_max = adam_epochs - 5000
-            T_cur = epoch - 5000
+                  f"| fred_s: 1.00")
+                  
+        if epoch > 1000:
+            # Keep cosine schedule scaled to new adam max
+            T_max = 18000
+            T_cur = min(epoch, T_max)
             lr_min = 1e-4
             lr_max = 1e-3
-            optimizer.param_groups[0]['lr'] = lr_min + 0.5 * (lr_max - lr_min) * (1 + math.cos(math.pi * T_cur / T_max))
+            cosine_lr = lr_min + 0.5 * (lr_max - lr_min) * (1 + math.cos(math.pi * T_cur / T_max))
+            optimizer.param_groups[0]['lr'] = cosine_lr
+            
+            # Early stopping check
+            loss_val = loss.item()
+            if loss_val < best_loss - adam_min_delta:
+                best_loss = loss_val
+                patience_counter = 0
+            else:
+                patience_counter += 1
+                
+            if patience_counter >= adam_patience:
+                print(f"\nEarly stopping Adam at epoch {epoch} (no improvement > {adam_min_delta} for {adam_patience} epochs).")
+                break
 
     # L-BFGS Refinement
     print("\nL-BFGS refinement")
-    lbfgs_epoch = adam_epochs
+    lbfgs_epoch = epoch
 
     lbfgs_optimizer = optim.LBFGS(
         model.parameters(),
         max_iter=lbfgs_max_iter,
-        tolerance_grad=1e-9,
-        tolerance_change=1e-12,
+        tolerance_grad=1e-11,
+        tolerance_change=1e-14,
         history_size=50,
         line_search_fn="strong_wolfe",
     )
@@ -248,7 +261,7 @@ def train():
 
     lbfgs_optimizer.step(closure)
 
-    print("\nTraining complete")
+    print("\n[ Training Complete ]")
     model.eval()
 
     results = {}
@@ -260,7 +273,7 @@ def train():
     with torch.no_grad():
         for i in range(num_edges):
             u_pred = model(x_grids[i], i).cpu()
-            u_ex   = exact_sol(x_grids[i], i)
+            u_ex   = problem_mod.exact_sol(x_grids[i], i)
 
             entry = {
                 'x': x_grids[i].cpu(),
@@ -290,16 +303,16 @@ def train():
                 print(f"Edge {i:2d} | L_inf: {max_error:.4e} | L2: {l2_error:.4e} | Rel L2: {rel_l2_error:.4e} | MSE: {mse:.4e} | MAE: {mae:.4e}")
                 entry['u_exact'] = u_ex
             else:
-                print(f"Edge {i:2d} | No analytic solution — skipping error report")
+                print(f"Edge {i:2d} | No analytic solution - skipping error report")
 
             results[i] = entry
 
         if has_exact:
             global_l2 = global_l2_sq**0.5
             global_rel_l2 = (global_l2 / (global_norm_sq**0.5)) if global_norm_sq > 0 else 0.0
-            print("-" * 80)
+            print("--------------------------------------------------------------------------------")
             print(f"Global  | L_inf: {global_max_error:.4e} | L2: {global_l2:.4e} | Rel L2: {global_rel_l2:.4e}")
-            print("-" * 80)
+            print("--------------------------------------------------------------------------------")
 
     import json
     import os
@@ -313,7 +326,7 @@ def train():
     print("Training history saved to exports/history.json")
 
     with open('exports/topology.json', 'w') as f:
-        json.dump(EDGE_DEFS, f, indent=4)
+        json.dump(problem_mod.EDGE_DEFS, f, indent=4)
     print("Topology saved to exports/topology.json")
 
     torch.save(results, 'exports/predictions.pt')
@@ -322,4 +335,18 @@ def train():
     return results, G, history
 
 if __name__ == "__main__":
-    train()
+    import argparse
+    import importlib
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-p', '--problem', type=str, required=True, help='Problem ID (e.g. b4a)')
+    args = parser.parse_args()
+    
+    import glob
+    files = glob.glob(f"problems/{args.problem}*.py")
+    if not files:
+        raise ValueError(f"No problem found matching {args.problem}")
+    mod_name = files[0].split('/')[-1].replace('.py', '')
+    
+    problem_mod = importlib.import_module(f"problems.{mod_name}")
+    train(problem_mod)

@@ -3,6 +3,17 @@ import math
 import scipy.special as sp
 from scipy.integrate import IntegrationWarning, quad
 import warnings
+import functools
+
+GL_PTS, GL_WTS = sp.roots_legendre(150)
+def gl_quad(func, a, b):
+    half = (b - a) / 2.0
+    mid = (a + b) / 2.0
+    return sum(w * func(half * p + mid) for p, w in zip(GL_PTS, GL_WTS)) * half
+
+@functools.lru_cache(maxsize=None)
+def R_cached(x, i, k, M):
+    return R(x, i, k, M)
 
 warnings.filterwarnings("ignore", category=IntegrationWarning)
 
@@ -84,6 +95,8 @@ class WaveletSolverMG:
         R_cache = {}
         Z_cache = {}
         for i in range(1, N_w + 1):
+            if i % max(1, N_w // 10) == 0:
+                print(f"  Precomputing basis {i}/{N_w}...")
             for x in x_q:
                 R_cache[(x, i)] = R(x, i, k, M)
                 Z_cache[(x, i)] = Z(x, i, self.gamma, k, M)
@@ -95,27 +108,28 @@ class WaveletSolverMG:
         row = 0
         
         for edge_i in range(self.num_edges):
+            print(f"  Assembling edge {edge_i+1}/{self.num_edges}...")
             L_i = self.lengths[edge_i]
             for x_val in x_q:
                 s_q = x_val * L_i
                 B[row] = f_funcs(s_q, edge_i, self.gamma)
                 col_start = edge_i * (N_w + 2)
                 
-                A[row, col_start + 0] = self.r_func(s_q, edge_i) - quad(lambda xi: self.k_volt(s_q, xi, edge_i) * 1.0, 0, s_q, limit=100)[0] - quad(lambda xi: self.k_fred(s_q, xi, edge_i, edge_i) * 1.0, 0, L_i, limit=100)[0]
+                A[row, col_start + 0] = self.r_func(s_q, edge_i) - gl_quad(lambda xi: self.k_volt(s_q, xi, edge_i) * 1.0, 0, s_q) - gl_quad(lambda xi: self.k_fred(s_q, xi, edge_i, edge_i) * 1.0, 0, L_i)
 
-                A[row, col_start + 1] = self.r_func(s_q, edge_i) * s_q - quad(lambda xi: self.k_volt(s_q, xi, edge_i) * xi, 0, s_q, limit=100)[0] - quad(lambda xi: self.k_fred(s_q, xi, edge_i, edge_i) * xi, 0, L_i, limit=100)[0]
+                A[row, col_start + 1] = self.r_func(s_q, edge_i) * s_q - gl_quad(lambda xi: self.k_volt(s_q, xi, edge_i) * xi, 0, s_q) - gl_quad(lambda xi: self.k_fred(s_q, xi, edge_i, edge_i) * xi, 0, L_i)
 
                 for m in range(1, N_w + 1):
-                    A[row, col_start + 1 + m] = (L_i ** (-self.gamma)) * Z_cache[(x_val, m)] + self.r_func(s_q, edge_i) * R_cache[(x_val, m)] - quad(lambda xi: self.k_volt(s_q, xi, edge_i) * R(xi / L_i, m, k, M), 0, s_q, limit=100)[0] - quad(lambda xi: self.k_fred(s_q, xi, edge_i, edge_i) * R(xi / L_i, m, k, M), 0, L_i, limit=100)[0]
+                    A[row, col_start + 1 + m] = (L_i ** (-self.gamma)) * Z_cache[(x_val, m)] + self.r_func(s_q, edge_i) * R_cache[(x_val, m)] - gl_quad(lambda xi: self.k_volt(s_q, xi, edge_i) * R_cached(xi / L_i, m, k, M), 0, s_q) - gl_quad(lambda xi: self.k_fred(s_q, xi, edge_i, edge_i) * R_cached(xi / L_i, m, k, M), 0, L_i)
                     
                 for edge_j in range(self.num_edges):
                     if edge_j == edge_i: continue
                     L_j = self.lengths[edge_j]
                     col_start_j = edge_j * (N_w + 2)
-                    A[row, col_start_j + 0] -= quad(lambda xi: self.k_fred(s_q, xi, edge_i, edge_j) * 1.0, 0, L_j, limit=100)[0]
-                    A[row, col_start_j + 1] -= quad(lambda xi: self.k_fred(s_q, xi, edge_i, edge_j) * xi, 0, L_j, limit=100)[0]
+                    A[row, col_start_j + 0] -= gl_quad(lambda xi: self.k_fred(s_q, xi, edge_i, edge_j) * 1.0, 0, L_j)
+                    A[row, col_start_j + 1] -= gl_quad(lambda xi: self.k_fred(s_q, xi, edge_i, edge_j) * xi, 0, L_j)
                     for m in range(1, N_w + 1):
-                        A[row, col_start_j + 1 + m] -= quad(lambda xi: self.k_fred(s_q, xi, edge_i, edge_j) * R(xi / L_j, m, k, M), 0, L_j, limit=100)[0]
+                        A[row, col_start_j + 1 + m] -= gl_quad(lambda xi: self.k_fred(s_q, xi, edge_i, edge_j) * R_cached(xi / L_j, m, k, M), 0, L_j)
 
                 row += 1
 
@@ -136,14 +150,14 @@ class WaveletSolverMG:
             L_i = self.lengths[edge_i]
             col_start = edge_i * (N_w + 2)
             
-            if btype == 'Dirichlet':
+            if btype.lower() == 'dirichlet':
                 if x_eval == 0.0:
                     A[row, col_start + 0] = 1.0
                 else:
                     A[row, col_start + 0] = 1.0
                     A[row, col_start + 1] = L_i
                     for m in range(1, N_w + 1): A[row, col_start + 1 + m] = R_1[m]
-            elif btype == 'Neumann':
+            elif btype.lower() == 'neumann':
                 if x_eval == 0.0:
                     A[row, col_start + 1] = sign * 1.0
                 else:
@@ -194,8 +208,9 @@ class WaveletSolverMG:
             B[row] = 0.0
             row += 1
 
-        print("Inverting matrix.")
+        print("Matrix assembled. Inverting matrix...")
         U = np.linalg.solve(A, B)
+        print("Inversion complete.")
         
         def get_approx(edge_i, x):
             L_i = self.lengths[edge_i]
@@ -205,11 +220,12 @@ class WaveletSolverMG:
             
             res = np.zeros_like(x, dtype=float)
             for j, s_val in enumerate(x):
-                val = U[col_start] + U[col_start + 1] * s_val
+                val = U[col_start] + U[col_start + 1] * float(s_val)
                 for m in range(1, N_w + 1):
-                    val += U[col_start + 1 + m] * R(s_val / L_i, m, k, M)
+                    val += U[col_start + 1 + m] * R(float(s_val) / L_i, m, k, M)
                 res[j] = val
                 
             return res if len(res) > 1 else res[0]
 
+        self.__A = A
         return get_approx, collocation_pts

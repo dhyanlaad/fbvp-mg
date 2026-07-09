@@ -224,6 +224,9 @@ fpinn/exports/*
 wavelets/exports/*
 !wavelets/exports/.gitkeep
 
+exports/*
+!exports/.gitkeep
+
 # pycache
 **/__pycache__/
 *.pyc
