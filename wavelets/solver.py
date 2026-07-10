@@ -7,9 +7,37 @@ import functools
 
 GL_PTS, GL_WTS = sp.roots_legendre(150)
 def gl_quad(func, a, b):
+    """Standard GL quadrature for smooth integrands (kernels * polynomial basis)."""
     half = (b - a) / 2.0
     mid = (a + b) / 2.0
     return sum(w * func(half * p + mid) for p, w in zip(GL_PTS, GL_WTS)) * half
+
+# Smaller per-panel GL rule for composite quadrature
+_PANEL_PTS, _PANEL_WTS = sp.roots_legendre(20)
+
+def gl_quad_composite(func, a, b, panel_edges):
+    """Composite GL quadrature that subdivides [a, b] at wavelet support boundaries.
+    
+    This ensures each narrow wavelet support interval gets adequate quadrature
+    resolution, preventing the accuracy collapse seen at high k levels where
+    the global 150-pt rule has too few points per wavelet support.
+    """
+    # Build sorted list of breakpoints within [a, b]
+    breaks = [a]
+    for edge in panel_edges:
+        if a < edge < b:
+            breaks.append(edge)
+    breaks.append(b)
+    
+    total = 0.0
+    for i in range(len(breaks) - 1):
+        lo, hi = breaks[i], breaks[i + 1]
+        if hi - lo < 1e-15:
+            continue
+        half = (hi - lo) / 2.0
+        mid = (hi + lo) / 2.0
+        total += sum(w * func(half * p + mid) for p, w in zip(_PANEL_PTS, _PANEL_WTS)) * half
+    return total
 
 @functools.lru_cache(maxsize=None)
 def R_cached(x, i, k, M):
@@ -29,20 +57,35 @@ def psi(x, i, k, M):
         return coef * H_m
     return 0.0
 
+def _psi_support(i, k, M):
+    """Return the support interval [a, b) of wavelet basis i."""
+    idx = i - 1
+    n = (idx // M) + 1
+    a = (n - 1) / (2**(k - 1))
+    b = n / (2**(k - 1))
+    return a, b
+
 def R(x, i, k, M):
     if x == 0.0: return 0.0
-    res, _ = quad(lambda s: (x - s) * psi(s, i, k, M), 0, x, limit=100)
+    a, b = _psi_support(i, k, M)
+    # Provide support boundaries as breakpoints so quad doesn't miss narrow supports
+    pts = [p for p in (a, b) if 0 < p < x]
+    res, _ = quad(lambda s: (x - s) * psi(s, i, k, M), 0, x, limit=100, points=pts)
     return res
 
 def R_prime(x, i, k, M):
     if x == 0.0: return 0.0
-    res, _ = quad(lambda s: psi(s, i, k, M), 0, x, limit=100)
+    a, b = _psi_support(i, k, M)
+    pts = [p for p in (a, b) if 0 < p < x]
+    res, _ = quad(lambda s: psi(s, i, k, M), 0, x, limit=100, points=pts)
     return res
 
 def Z(x, i, gamma, k, M):
     alpha = 2.0 - gamma
     if x == 0: return 0.0
-    res, _ = quad(lambda s: ((x - s)**(alpha - 1)) * psi(s, i, k, M), 0, x, limit=100)
+    a, b = _psi_support(i, k, M)
+    pts = [p for p in (a, b) if 0 < p < x]
+    res, _ = quad(lambda s: ((x - s)**(alpha - 1)) * psi(s, i, k, M), 0, x, limit=100, points=pts)
     return res / math.gamma(alpha)
 
 class WaveletSolverMG:
@@ -105,31 +148,47 @@ class WaveletSolverMG:
         
         print(f"{num_bc} boundaries and {len(self.internal_nodes)} junction(s).")
         print("Assembling matrix system.")
+        
+        # Precompute dyadic panel edges in physical coordinates for each edge.
+        # These are the wavelet support boundaries: n/2^(k-1) * L for n = 0..2^(k-1).
+        # The composite GL rule subdivides at these points to resolve each wavelet.
+        panel_edges_phys = {}
+        for edge_idx in range(self.num_edges):
+            L_e = self.lengths[edge_idx]
+            panel_edges_phys[edge_idx] = [n * L_e / (2**(k - 1)) for n in range(0, 2**(k - 1) + 1)]
+        
         row = 0
         
         for edge_i in range(self.num_edges):
             print(f"  Assembling edge {edge_i+1}/{self.num_edges}...")
             L_i = self.lengths[edge_i]
+            panels_i = panel_edges_phys[edge_i]
             for x_val in x_q:
                 s_q = x_val * L_i
                 B[row] = f_funcs(s_q, edge_i, self.gamma)
                 col_start = edge_i * (N_w + 2)
                 
+                # Constant and linear basis: smooth integrands, standard GL is fine
                 A[row, col_start + 0] = self.r_func(s_q, edge_i) - gl_quad(lambda xi: self.k_volt(s_q, xi, edge_i) * 1.0, 0, s_q) - gl_quad(lambda xi: self.k_fred(s_q, xi, edge_i, edge_i) * 1.0, 0, L_i)
 
                 A[row, col_start + 1] = self.r_func(s_q, edge_i) * s_q - gl_quad(lambda xi: self.k_volt(s_q, xi, edge_i) * xi, 0, s_q) - gl_quad(lambda xi: self.k_fred(s_q, xi, edge_i, edge_i) * xi, 0, L_i)
 
+                # Wavelet basis: integrand has R_cached with narrow support,
+                # must use composite GL to resolve each panel
                 for m in range(1, N_w + 1):
-                    A[row, col_start + 1 + m] = (L_i ** (-self.gamma)) * Z_cache[(x_val, m)] + self.r_func(s_q, edge_i) * R_cache[(x_val, m)] - gl_quad(lambda xi: self.k_volt(s_q, xi, edge_i) * R_cached(xi / L_i, m, k, M), 0, s_q) - gl_quad(lambda xi: self.k_fred(s_q, xi, edge_i, edge_i) * R_cached(xi / L_i, m, k, M), 0, L_i)
+                    A[row, col_start + 1 + m] = (L_i ** (-self.gamma)) * Z_cache[(x_val, m)] + self.r_func(s_q, edge_i) * R_cache[(x_val, m)] - gl_quad_composite(lambda xi: self.k_volt(s_q, xi, edge_i) * R_cached(xi / L_i, m, k, M), 0, s_q, panels_i) - gl_quad_composite(lambda xi: self.k_fred(s_q, xi, edge_i, edge_i) * R_cached(xi / L_i, m, k, M), 0, L_i, panels_i)
                     
                 for edge_j in range(self.num_edges):
                     if edge_j == edge_i: continue
                     L_j = self.lengths[edge_j]
+                    panels_j = panel_edges_phys[edge_j]
                     col_start_j = edge_j * (N_w + 2)
+                    # Constant and linear: smooth, standard GL
                     A[row, col_start_j + 0] -= gl_quad(lambda xi: self.k_fred(s_q, xi, edge_i, edge_j) * 1.0, 0, L_j)
                     A[row, col_start_j + 1] -= gl_quad(lambda xi: self.k_fred(s_q, xi, edge_i, edge_j) * xi, 0, L_j)
+                    # Wavelet basis: composite GL
                     for m in range(1, N_w + 1):
-                        A[row, col_start_j + 1 + m] -= gl_quad(lambda xi: self.k_fred(s_q, xi, edge_i, edge_j) * R_cached(xi / L_j, m, k, M), 0, L_j)
+                        A[row, col_start_j + 1 + m] -= gl_quad_composite(lambda xi: self.k_fred(s_q, xi, edge_i, edge_j) * R_cached(xi / L_j, m, k, M), 0, L_j, panels_j)
 
                 row += 1
 
@@ -210,7 +269,8 @@ class WaveletSolverMG:
 
         print("Matrix assembled. Inverting matrix...")
         U = np.linalg.solve(A, B)
-        print("Inversion complete.")
+        cond = np.linalg.cond(A)
+        print(f"Inversion complete. Condition number: {cond:.2e}")
         
         def get_approx(edge_i, x):
             L_i = self.lengths[edge_i]

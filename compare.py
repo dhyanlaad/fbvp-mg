@@ -2,6 +2,7 @@ import sys
 import os
 import re
 import importlib
+import time
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
@@ -136,10 +137,16 @@ def compute_numerical_residual(problem_mod, u_preds_dict):
 
 
 def main():
+    fpinn_time = None
+    wavelet_time = None
+
     # 1. Run the FPINN Solver
     if not args.skip_fpinn:
         print("\n[ Running FPINN (Neural Network) Solver ]")
+        t0 = time.perf_counter()
         run_fpinn(problem_mod)
+        fpinn_time = time.perf_counter() - t0
+        print(f"\nFPINN wall-clock time: {fpinn_time:.2f}s")
     else:
         print("\n[ Skipping FPINN (Neural Network) Solver ]")
 
@@ -147,6 +154,7 @@ def main():
     wavelet_results = {}
     if not args.skip_wavelet:
         print("\n[ Running Wavelet Solver ]")
+        t0 = time.perf_counter()
         solver = WaveletSolverMG(
             problem_mod.EDGE_DEFS, 
             problem_mod.BC_DEFS, 
@@ -156,6 +164,8 @@ def main():
             k_fred
         )
         approx_func, collocation_pts = solver.solve(K_VAL, M_VAL, compute_f)
+        wavelet_time = time.perf_counter() - t0
+        print(f"\nWavelet wall-clock time: {wavelet_time:.2f}s")
 
         # Evaluate Wavelet predictions on a dense grid
         for edge_i in range(len(problem_mod.EDGE_DEFS)):
@@ -286,6 +296,24 @@ def main():
     out_path = os.path.join(project_root, 'exports', 'comparison_plot.png')
     plt.savefig(out_path, dpi=300, bbox_inches='tight')
     print(f"\nComparison plot successfully saved to {out_path}!")
+
+    # Print timing summary
+    print("\n" + "=" * 50)
+    print("  TIMING SUMMARY")
+    print("=" * 50)
+    if fpinn_time is not None:
+        print(f"  FPINN:    {fpinn_time:>10.2f}s")
+    else:
+        print(f"  FPINN:    skipped")
+    if wavelet_time is not None:
+        print(f"  Wavelet:  {wavelet_time:>10.2f}s")
+    else:
+        print(f"  Wavelet:  skipped")
+    if fpinn_time is not None and wavelet_time is not None:
+        ratio = fpinn_time / wavelet_time if wavelet_time > 0 else float('inf')
+        faster = "Wavelet" if ratio > 1 else "FPINN"
+        print(f"  Ratio:    {ratio:>10.2f}x ({faster} is faster)")
+    print("=" * 50)
 
     if args.viz3d:
         print(f"Opening 3D visualization for {args.viz3d}...")
