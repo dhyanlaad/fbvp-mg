@@ -32,13 +32,13 @@ def matern_kernel(dist, nu, length_scale):
 
 _sources = {}
 for i, (_, _, L) in enumerate(EDGE_DEFS):
-    pts = np.linspace(0, L, 200)
+    pts = np.linspace(0, L, 500)
     dist = np.abs(pts[:, None] - pts[None, :])
     cov = matern_kernel(dist, nu, length_scale)
-    cov += 1e-8 * np.eye(200) # numerical stability
+    cov += 1e-8 * np.eye(500) # numerical stability
     
     L_chol = np.linalg.cholesky(cov)
-    z = np.random.randn(200)
+    z = np.random.randn(500)
     f_vals = L_chol @ z
     
     _sources[i] = interp1d(pts, f_vals, kind='cubic', bounds_error=False, fill_value="extrapolate")

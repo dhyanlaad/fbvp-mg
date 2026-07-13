@@ -2,10 +2,8 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-# Explicitly declare the interactive Qt5 backend before importing pyplot
 import matplotlib
-matplotlib.use('Qt5Agg') 
-
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import torch
@@ -94,9 +92,6 @@ def main():
     plt.tight_layout()
     plt.savefig('exports/sol_3d.png', dpi=300, bbox_inches='tight')
     print("3D Plot saved to exports/sol_3d.png")
-    
-    # Initialize the interactive window
-    plt.show()
 
 if __name__ == "__main__":
     main()

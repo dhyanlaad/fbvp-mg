@@ -5,6 +5,8 @@ import importlib
 import time
 import numpy as np
 import torch
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from scipy.integrate import quad
 
@@ -23,6 +25,8 @@ parser.add_argument('-p', '--problem', type=str, required=True, help="Problem ID
 parser.add_argument('--viz3d', type=str, choices=['fpinn', 'wavelet'], help="Open interactive 3D visualization for the specified solver")
 parser.add_argument('--skip-fpinn', action='store_true', help="Skip FPINN training and load existing predictions")
 parser.add_argument('--skip-wavelet', action='store_true', help="Skip Wavelet solving")
+parser.add_argument('-k', '--k_val', type=int, default=6, help="Resolution level k for Wavelet solver")
+parser.add_argument('-m', '--m_val', type=int, default=4, help="Degree M for Wavelet solver")
 args = parser.parse_args()
 
 # Strip out 'problems/' prefix or '.py' extension if the user used bash autocomplete
@@ -41,7 +45,6 @@ problem_mod = importlib.import_module(f"problems.{problem_name}")
 # Import solvers and utilities
 from fpinn.train import train as run_fpinn
 from wavelets.solver import WaveletSolverMG
-from wavelets.main import K_VAL, M_VAL
 from fpinn.math_ops.fractional_operators import get_jacobi_quadrature, autograd_caputo_derivative, l21sigma_weights, fdv
 
 # --- Set up Wavelet solver wrappers for PyTorch/SciPy compatibility ---
@@ -163,7 +166,7 @@ def main():
             k_volt, 
             k_fred
         )
-        approx_func, collocation_pts = solver.solve(K_VAL, M_VAL, compute_f)
+        approx_func, collocation_pts = solver.solve(args.k_val, args.m_val, compute_f)
         wavelet_time = time.perf_counter() - t0
         print(f"\nWavelet wall-clock time: {wavelet_time:.2f}s")
 
@@ -392,7 +395,9 @@ def main():
         ax3d.view_init(elev=25, azim=45)
 
         plt.tight_layout()
-        plt.show()
+        out_3d_path = os.path.join(project_root, 'exports', f'sol_3d_{args.viz3d}.png')
+        plt.savefig(out_3d_path, dpi=300, bbox_inches='tight')
+        print(f"3D visualization saved to {out_3d_path}")
 
 if __name__ == "__main__":
     main()

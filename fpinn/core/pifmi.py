@@ -166,7 +166,6 @@ class MetricGraphNet(nn.Module):
         x_scaled = x_in / L
         x_val = x_in
         
-        # Mathematical Ansatzes combining Dirichlet and Neumann constraints exactly
         if T0 == 'Dirichlet' and TL == 'Dirichlet':
             y = v0 * (1 - x_scaled) + vL * x_scaled + x_scaled * (1 - x_scaled) * raw
         elif T0 == 'Dirichlet' and TL == 'Neumann':

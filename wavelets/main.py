@@ -74,7 +74,7 @@ def autograd_caputo_derivative(func, x, alpha, quad_pts, quad_wts):
     
     return frac_d.unsqueeze(1)
 
-def run_wavelets(problem_mod):
+def run_wavelets(problem_mod, k_val=K_VAL, m_val=M_VAL):
     ALPHA = problem_mod.ALPHA
     EDGE_DEFS = problem_mod.EDGE_DEFS
     BC_DEFS = problem_mod.BC_DEFS
@@ -122,9 +122,9 @@ def run_wavelets(problem_mod):
 
     solver = WaveletSolverMG(EDGE_DEFS, BC_DEFS, ALPHA, reaction, k_volt, k_fred)
     
-    print(f"[ Wavelet Solver | gamma: {ALPHA} | k: {K_VAL} | M: {M_VAL} ]")
+    print(f"[ Wavelet Solver | gamma: {ALPHA} | k: {k_val} | M: {m_val} ]")
     
-    approx_func, collocation_pts = solver.solve(K_VAL, M_VAL, compute_f)
+    approx_func, collocation_pts = solver.solve(k_val, m_val, compute_f)
     
     print(f"\nEdge | x          | Exact           | Approx          | Error")
     print("------------------------------------------------------------------")
@@ -183,6 +183,8 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser()
     parser.add_argument('-p', '--problem', type=str, required=True, help='Problem ID (e.g. b4a)')
+    parser.add_argument('-k', '--k_val', type=int, default=K_VAL, help='Resolution level k for Wavelet solver')
+    parser.add_argument('-m', '--m_val', type=int, default=M_VAL, help='Degree M for Wavelet solver')
     args = parser.parse_args()
     
     problem_id = os.path.basename(args.problem).replace('.py', '')
@@ -193,4 +195,4 @@ if __name__ == "__main__":
     mod_name = files[0].split('/')[-1].replace('.py', '')
     problem_mod = importlib.import_module(f"problems.{mod_name}")
     
-    run_wavelets(problem_mod)
+    run_wavelets(problem_mod, k_val=args.k_val, m_val=args.m_val)

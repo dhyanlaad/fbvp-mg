@@ -1,5 +1,7 @@
 import sys
 import os
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import torch
@@ -108,7 +110,6 @@ def main():
     out_path = os.path.join(plots_dir, 'sol_3d.png')
     plt.tight_layout()
     plt.savefig(out_path, dpi=300, bbox_inches='tight')
-    plt.show()
     print(f"Generalized 3D Plot saved to {out_path}")
 
 if __name__ == "__main__":

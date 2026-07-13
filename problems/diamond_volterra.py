@@ -44,7 +44,7 @@ def reaction(x, edge_i):
 
 def k_volt(edge_i, x, z):
     """
-    Strong Volterra kernel: magnitude ~3.0–4.5.
+    Strong Volterra kernel: magnitude ~3.0-4.5.
     Edge-dependent exponential decay with high amplitude.
     """
     scale = 3.0 + 0.5 * edge_i
