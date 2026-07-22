@@ -14,9 +14,9 @@ NUM_EDGES = len(EDGE_DEFS)
 
 # Boundary conditions at the leaves (nodes 1, 2, 3)
 BC_DEFS = {
-    1: {'type': 'dirichlet', 'value': 0.0},
-    2: {'type': 'dirichlet', 'value': 0.0},
-    3: {'type': 'dirichlet', 'value': 0.0}
+    1: {'type': 'Dirichlet', 'value': 0.0},
+    2: {'type': 'Dirichlet', 'value': 0.0},
+    3: {'type': 'Dirichlet', 'value': 0.0}
 }
 
 def exact_sol(x, edge_i):
