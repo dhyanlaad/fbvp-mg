@@ -231,7 +231,7 @@ def train(problem_mod):
 
     lbfgs_optimizer = optim.LBFGS(
         model.parameters(),
-        max_iter=100,  # Small block size for frequent restarts
+        max_iter=20,  # Smaller block size for even more frequent restarts
         tolerance_grad=1e-13,
         tolerance_change=1e-16,
         history_size=50,
