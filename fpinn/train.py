@@ -106,7 +106,7 @@ def train(problem_mod):
     lam_kirch     = 1000.0
 
     adam_max_epochs = 20000
-    lbfgs_max_iter = 5000
+    lbfgs_max_iter = 10000
 
     # Grid Construction
     x_grids   = []
