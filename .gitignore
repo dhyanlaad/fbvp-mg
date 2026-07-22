@@ -230,3 +230,6 @@ exports/*
 # pycache
 **/__pycache__/
 *.pyc
+
+# Benchmark output
+results/
