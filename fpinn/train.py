@@ -105,9 +105,6 @@ def train(problem_mod):
     lam_ode       = 10.0
     lam_kirch     = 1000.0
 
-    adam_max_epochs = 20000
-    lbfgs_max_iter = 10000
-
     # Grid Construction
     x_grids   = []
     q_weights = []
@@ -185,7 +182,8 @@ def train(problem_mod):
     adam_patience = 500
     adam_min_delta = 1e-10
 
-    for epoch in range(1, adam_max_epochs + 1):
+    epoch = 1
+    while True:
         optimizer.zero_grad()
 
         loss, l_ode, l_kirch = compute_loss(
@@ -200,10 +198,9 @@ def train(problem_mod):
         optimizer.step()
 
         if epoch % 1000 == 0 or epoch == 1:
-            print(f"Epoch {epoch:5d}/{adam_max_epochs} | Loss: {loss.item():.4e} "
+            print(f"Epoch {epoch:5d} | Loss: {loss.item():.4e} "
                   f"| ODE: {l_ode.item():.4e} "
-                  f"| Kirch: {l_kirch.item():.4e} "
-                  f"| fred_s: 1.00")
+                  f"| Kirch: {l_kirch.item():.4e}")
                   
         if epoch > 1000:
             # Keep cosine schedule scaled to new adam max
@@ -225,6 +222,8 @@ def train(problem_mod):
             if patience_counter >= adam_patience:
                 print(f"\nEarly stopping Adam at epoch {epoch} (no improvement > {adam_min_delta} for {adam_patience} epochs).")
                 break
+                
+        epoch += 1
 
     # L-BFGS Refinement
     print("\nL-BFGS refinement")
@@ -261,8 +260,7 @@ def train(problem_mod):
         return loss
 
     prev_loss = float('inf')
-    print("\nL-BFGS refinement")
-    while lbfgs_iter < lbfgs_max_iter:
+    while True:
         loss_val = lbfgs_optimizer.step(closure).item()
         
         # Absolute convergence check to break loop if fully converged
