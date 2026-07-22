@@ -69,7 +69,7 @@ def main():
             # --- 1. FPINN ---
             print("  [1/3] FPINN training...")
             t0 = time.time()
-            fpinn_out = run_cmd([PYTHON, "fpinn/train.py", "-p", "temp_benchmark"])
+            fpinn_out = run_cmd([PYTHON, "main.py", "--mode", "fpinn", "-p", "temp_benchmark"])
             fpinn_time = time.time() - t0
             stats.append(f"\nFPINN Training Time: {fpinn_time:.2f}s")
 
@@ -92,7 +92,7 @@ def main():
 
             for k, m in WAVELET_SWEEP:
                 t0 = time.time()
-                wave_out = run_cmd([PYTHON, "wavelets/main.py", "-p", "temp_benchmark", "-k", str(k), "-m", str(m)])
+                wave_out = run_cmd([PYTHON, "main.py", "--mode", "wavelet", "-p", "temp_benchmark", "-k", str(k), "-m", str(m)])
                 wave_time = time.time() - t0
 
                 run_cmd([PYTHON, "wavelets/viz.py"])
@@ -120,7 +120,7 @@ def main():
             # --- 3. Compare.py ---
             print("  [3/3] Unified comparison...")
             best_k, best_m = WAVELET_SWEEP[-1]
-            comp_out = run_cmd([PYTHON, "compare.py", "-p", "temp_benchmark",
+            comp_out = run_cmd([PYTHON, "main.py", "--mode", "compare", "-p", "temp_benchmark",
                                 "-k", str(best_k), "-m", str(best_m)])
 
             if os.path.exists(os.path.join(exports, "comparison_plot.png")):

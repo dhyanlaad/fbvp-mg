@@ -344,19 +344,4 @@ def train(problem_mod):
 
     return results, G, history
 
-if __name__ == "__main__":
-    import argparse
-    import importlib
-    
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-p', '--problem', type=str, required=True, help='Problem ID (e.g. b4a)')
-    args = parser.parse_args()
-    
-    import glob
-    files = glob.glob(f"problems/{args.problem}*.py")
-    if not files:
-        raise ValueError(f"No problem found matching {args.problem}")
-    mod_name = files[0].split('/')[-1].replace('.py', '')
-    
-    problem_mod = importlib.import_module(f"problems.{mod_name}")
-    train(problem_mod)
+

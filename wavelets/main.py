@@ -176,23 +176,4 @@ def run_wavelets(problem_mod, k_val=K_VAL, m_val=M_VAL):
     torch.save(results, os.path.join(exports_dir, 'predictions.pt'))
     print(f"\nData successfully exported to {exports_dir} for visualization!")
 
-if __name__ == "__main__":
-    import argparse
-    import importlib
-    import glob
-    
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-p', '--problem', type=str, required=True, help='Problem ID (e.g. b4a)')
-    parser.add_argument('-k', '--k_val', type=int, default=K_VAL, help='Resolution level k for Wavelet solver')
-    parser.add_argument('-m', '--m_val', type=int, default=M_VAL, help='Degree M for Wavelet solver')
-    args = parser.parse_args()
-    
-    problem_id = os.path.basename(args.problem).replace('.py', '')
-    files = glob.glob(f"problems/{problem_id}*.py")
-    if not files:
-        raise ValueError(f"No problem found matching {args.problem}")
-    
-    mod_name = files[0].split('/')[-1].replace('.py', '')
-    problem_mod = importlib.import_module(f"problems.{mod_name}")
-    
-    run_wavelets(problem_mod, k_val=args.k_val, m_val=args.m_val)
+
