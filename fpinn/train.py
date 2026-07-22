@@ -231,7 +231,7 @@ def train(problem_mod):
 
     lbfgs_optimizer = optim.LBFGS(
         model.parameters(),
-        max_iter=lbfgs_max_iter,
+        max_iter=100,  # Small block size for frequent restarts
         tolerance_grad=1e-13,
         tolerance_change=1e-16,
         history_size=50,
@@ -259,7 +259,17 @@ def train(problem_mod):
                   f"| Kirch: {l_kirch.item():.4e}")
         return loss
 
-    lbfgs_optimizer.step(closure)
+    prev_loss = float('inf')
+    print("\nL-BFGS refinement")
+    while lbfgs_iter < lbfgs_max_iter:
+        loss_val = lbfgs_optimizer.step(closure).item()
+        
+        # Absolute convergence check to break loop if fully converged
+        if abs(prev_loss - loss_val) < 1e-14:
+            print(f"L-BFGS converged absolutely at eval {lbfgs_iter}.")
+            break
+            
+        prev_loss = loss_val
 
     print("\n[ Training Complete ]")
     model.eval()
