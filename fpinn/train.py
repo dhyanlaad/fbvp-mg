@@ -182,7 +182,7 @@ def train(problem_mod):
     best_loss = float('inf')
     patience_counter = 0
     adam_patience = 500
-    adam_min_delta = 1e-8
+    adam_min_delta = 1e-10
 
     for epoch in range(1, adam_max_epochs + 1):
         optimizer.zero_grad()
