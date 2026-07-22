@@ -92,7 +92,7 @@ class MetricGraphNet(nn.Module):
         for v in bnd_verts:
             if v not in bc_defs:
                 raise ValueError(f"Missing boundary condition for leaf vertex {v}")
-            bc_type = bc_defs[v]['type']
+            bc_type = bc_defs[v]['type'].capitalize()
             bc_val  = bc_defs[v]['value']
             
             for edge_id, is_start in vtx_info[v]:
