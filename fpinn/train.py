@@ -158,7 +158,8 @@ def train(problem_mod):
                            int_verts=int_verts,
                            vtx_info=vtx_info,
                            bc_defs=problem_mod.BC_DEFS,
-                           share_init=True).to(device)
+                           share_init=True,
+                           alpha=getattr(problem_mod, 'ALPHA', None)).to(device)
 
     loss_kwargs = dict(
         problem_mod=problem_mod, model=model, x_grids=x_grids, quad_pts=quad_pts, quad_wts=quad_wts,

@@ -30,9 +30,14 @@ class EdgeNet(nn.Module):
     This acts as the unconstrained latent function `raw(x)` before any boundary
     or continuity constraints are mathematically enforced.
     """
-    def __init__(self, layers=[1, 50, 50, 50, 50, 50, 50, 1]):
+    def __init__(self, alpha=None, hidden_layers=[50, 50, 50, 50, 50, 50]):
         super().__init__()
+        self.alpha = alpha
         self.activation = nn.Tanh()
+        
+        in_dim = 2 if alpha is not None else 1
+        layers = [in_dim] + hidden_layers + [1]
+        
         self.linears = nn.ModuleList([
             nn.Linear(layers[i], layers[i + 1]) for i in range(len(layers) - 1)
         ])
@@ -44,9 +49,15 @@ class EdgeNet(nn.Module):
             nn.init.zeros_(layer.bias.data)
 
     def forward(self, x):
+        if self.alpha is not None:
+            # Feature expansion to handle fractional spectral bias
+            features = torch.cat([x, x ** self.alpha], dim=1)
+        else:
+            features = x
+            
         for i in range(len(self.linears) - 1):
-            x = self.activation(self.linears[i](x))
-        return self.linears[-1](x)
+            features = self.activation(self.linears[i](features))
+        return self.linears[-1](features)
 
 class MetricGraphNet(nn.Module):
     """
@@ -57,19 +68,17 @@ class MetricGraphNet(nn.Module):
     hardcodes internal node continuity to strictly prevent vertex tearing.
     """
     def __init__(self, num_edges, lengths, bnd_verts=[], int_verts=[], vtx_info={}, bc_defs={},
-                 layers=[1, 50, 50, 50, 50, 50, 50, 1],
-                 share_init=False):
+                 hidden_layers=[50, 50, 50, 50, 50, 50],
+                 share_init=False, alpha=None):
         super().__init__()
         
         # Instantiate EdgeNets
         if share_init and num_edges > 1:
-            prototype = EdgeNet(layers)
+            prototype = EdgeNet(alpha=alpha, hidden_layers=hidden_layers)
             self.nets = nn.ModuleList([prototype] +
                 [copy.deepcopy(prototype) for _ in range(num_edges - 1)])
         else:
-            self.nets = nn.ModuleList([
-                EdgeNet(layers) for _ in range(num_edges)
-            ])
+            self.nets = nn.ModuleList([EdgeNet(alpha=alpha, hidden_layers=hidden_layers) for _ in range(num_edges)])
 
         self.register_buffer('lengths', torch.tensor(lengths, dtype=torch.float32))
 
