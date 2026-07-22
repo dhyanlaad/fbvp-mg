@@ -232,8 +232,8 @@ def train(problem_mod):
     lbfgs_optimizer = optim.LBFGS(
         model.parameters(),
         max_iter=lbfgs_max_iter,
-        tolerance_grad=1e-11,
-        tolerance_change=1e-14,
+        tolerance_grad=1e-13,
+        tolerance_change=1e-16,
         history_size=50,
         line_search_fn="strong_wolfe",
     )
