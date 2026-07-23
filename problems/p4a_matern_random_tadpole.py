@@ -19,29 +19,21 @@ BC_DEFS = {
     3: {'type': 'Dirichlet', 'value': 0.0}
 }
 
-# Generate Whittle-Matérn random fields for each edge
-# We precompute a single realization so it stays constant across solver runs
-np.random.seed(42)
-nu = 1.5  # smoothness
-length_scale = 0.2
-
-def matern_kernel(dist, nu, length_scale):
-    # For nu=1.5: (1 + sqrt(3)*dist/l) * exp(-sqrt(3)*dist/l)
-    r = np.sqrt(3) * dist / length_scale
-    return (1.0 + r) * np.exp(-r)
+import pandas as pd
+import os
 
 _sources = {}
-for i, (_, _, L) in enumerate(EDGE_DEFS):
-    pts = np.linspace(0, L, 500)
-    dist = np.abs(pts[:, None] - pts[None, :])
-    cov = matern_kernel(dist, nu, length_scale)
-    cov += 1e-8 * np.eye(500) # numerical stability
-    
-    L_chol = np.linalg.cholesky(cov)
-    z = np.random.randn(500)
-    f_vals = L_chol @ z
-    
-    _sources[i] = interp1d(pts, f_vals, kind='cubic', bounds_error=False, fill_value="extrapolate")
+csv_path = os.path.join(os.path.dirname(__file__), "matern_field.csv")
+if os.path.exists(csv_path):
+    df = pd.read_csv(csv_path)
+    for i, (_, _, L) in enumerate(EDGE_DEFS):
+        edge_data = df[df['edge'] == i]
+        pts = edge_data['distance'].values
+        f_vals = edge_data['value'].values
+        _sources[i] = interp1d(pts, f_vals, kind='cubic', bounds_error=False, fill_value="extrapolate")
+else:
+    raise FileNotFoundError(f"Please run generate_matern.R to generate the field: {csv_path} not found")
+
 
 def exact_sol(x, edge_i):
     # No analytical exact solution available for GRF source
