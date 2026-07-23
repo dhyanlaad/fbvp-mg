@@ -3,7 +3,6 @@ import os
 import warnings
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 warnings.filterwarnings("ignore", message=".*cuBLAS.*")
-warnings.filterwarnings("ignore", category=UserWarning, message=".*CUDA initialization.*")
 import math
 import torch
 import torch.optim as optim
