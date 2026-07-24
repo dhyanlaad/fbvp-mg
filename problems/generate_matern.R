@@ -20,7 +20,7 @@ PtE <- do.call(rbind, lapply(1:4, function(i) {
 # Parameter setup (matching the Python scale, roughly)
 # nu=1.5 translates to alpha=2
 set.seed(42)
-u <- sample_spde(range = 0.2, sigma = 1.0, alpha = 2, graph = graph, PtE = PtE)
+u <- sample_spde(range = 1.5, sigma = 1.0, alpha = 2, graph = graph, PtE = PtE)
 
 # Save to CSV
 df <- data.frame(edge = PtE[,1] - 1, distance = PtE[,2], value = as.numeric(u))
